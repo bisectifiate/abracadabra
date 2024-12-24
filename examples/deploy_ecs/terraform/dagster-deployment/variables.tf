@@ -8,8 +8,13 @@ variable "vpc_id" {
   type        = string
 }
 
-variable "subnets" {
-  description = "List of subnets for ECS tasks."
+variable "daemon_subnet_ids" {
+  description = "List of subnet ids for the Dagster Daemon ECS task."
+  type        = list(string)
+}
+
+variable "webserver_subnet_ids" {
+  description = "List of subnet ids for the Dagster Webserver ECS task."
   type        = list(string)
 }
 
@@ -21,18 +26,49 @@ variable "ecs_cluster_id" {
 variable "create_iam_roles" {
   description = "Whether to create IAM roles and policies."
   type        = bool
+  default     = true
 }
 
 variable "execution_role_arn" {
-  description = "The ARN of the execution role."
+  description = "The ARN of the execution role. Provide this if create_iam_roles is false."
   type        = string
   default     = null
 }
 
 variable "task_role_arn" {
-  description = "The ARN of the task role."
+  description = "The ARN of the task role. Provide this if create_iam_roles is false."
   type        = string
   default     = null
+}
+
+variable "create_lb" {
+  description = "Whether to create a load balancer."
+  type        = bool
+  default     = true
+}
+
+variable "lb_target_group_arn" {
+  description = "The ARN of the target group for the load balancer. Provide this if create_lb is false."
+  type        = string
+  default     = null
+}
+
+variable "assign_public_ip" {
+  description = "Whether to assign a public IP to the ECS tasks. Warning: this might will expose the tasks to the internet."
+  # If `assign_public_ip` is `false`, and the tasks are not in a private subnet (aka 0.0.0.0/0 routing to a NAT device), then they won't be able to egress either, for use cases such as collecting data from external APIs.
+  type        = bool
+  default     = false
+}
+
+variable "create_log_group" {
+  description = "Whether to create a CloudWatch log group."
+  type        = bool
+  default     = true
+}
+
+variable "log_group" {
+  description = "The CloudWatch log group for the tasks. Provide this if create_log_group is false."
+  type        = string
 }
 
 variable "dagster_image" {
@@ -72,9 +108,4 @@ variable "secrets" {
     value_from = string
   }))
   default = []
-}
-
-variable "log_group" {
-  description = "The CloudWatch log group for the service."
-  type        = string
 }
