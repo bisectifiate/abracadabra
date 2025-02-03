@@ -28,7 +28,7 @@ from dagster._cli.workspace.cli_target import (
     get_repository_python_origin_from_cli_opts,
     get_run_config_from_cli_opts,
     get_run_config_from_file_list,
-    get_workspace_from_kwargs,
+    get_workspace_from_cli_opts,
     job_name_option,
     job_options,
     python_pointer_options,
@@ -424,7 +424,7 @@ def execute_launch_command(
         check.is_tuple(kwargs.get("config", tuple()), of_type=str), kwargs.get("config_json")
     )
 
-    with get_workspace_from_kwargs(instance, version=dagster_version, kwargs=kwargs) as workspace:
+    with get_workspace_from_cli_opts(instance, version=dagster_version, kwargs=kwargs) as workspace:
         code_location = get_code_location_from_workspace(workspace, kwargs.get("location"))
         repo = get_remote_repository_from_code_location(
             code_location, cast(Optional[str], kwargs.get("repository"))
@@ -647,7 +647,9 @@ def job_backfill_command(**kwargs):
 def execute_backfill_command(
     cli_args: ClickArgMapping, print_fn: PrintFn, instance: DagsterInstance
 ) -> None:
-    with get_workspace_from_kwargs(instance, version=dagster_version, kwargs=cli_args) as workspace:
+    with get_workspace_from_cli_opts(
+        instance, version=dagster_version, kwargs=cli_args
+    ) as workspace:
         code_location = get_code_location_from_workspace(
             workspace, check.opt_str_elem(cli_args, "location")
         )

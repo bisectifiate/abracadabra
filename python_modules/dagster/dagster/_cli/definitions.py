@@ -5,8 +5,12 @@ import sys
 import click
 
 from dagster import __version__ as dagster_version
-from dagster._cli.utils import ClickArgValue, get_possibly_temporary_instance_for_cli
-from dagster._cli.workspace.cli_target import get_workspace_from_kwargs, workspace_options
+from dagster._cli.utils import assert_no_remaining_opts, get_possibly_temporary_instance_for_cli
+from dagster._cli.workspace.cli_target import (
+    WorkspaceOpts,
+    get_workspace_from_cli_opts,
+    workspace_options,
+)
 from dagster._utils.log import configure_loggers
 
 
@@ -15,22 +19,6 @@ def definitions_cli():
     """Commands for working with Dagster definitions."""
 
 
-@workspace_options
-@click.option(
-    "--log-level",
-    help="Set the log level for dagster services.",
-    show_default=True,
-    default="info",
-    type=click.Choice(["critical", "error", "warning", "info", "debug"], case_sensitive=False),
-)
-@click.option(
-    "--log-format",
-    type=click.Choice(["colored", "json", "rich"], case_sensitive=False),
-    show_default=True,
-    required=False,
-    default="colored",
-    help="Format of the logs for dagster services",
-)
 @definitions_cli.command(
     name="validate",
     help="""
@@ -47,7 +35,26 @@ def definitions_cli():
     This command should be run in a Python environment where the `dagster` package is installed.
     """,
 )
-def definitions_validate_command(log_level: str, log_format: str, **kwargs: ClickArgValue):
+@click.option(
+    "--log-level",
+    help="Set the log level for dagster services.",
+    show_default=True,
+    default="info",
+    type=click.Choice(["critical", "error", "warning", "info", "debug"], case_sensitive=False),
+)
+@click.option(
+    "--log-format",
+    type=click.Choice(["colored", "json", "rich"], case_sensitive=False),
+    show_default=True,
+    required=False,
+    default="colored",
+    help="Format of the logs for dagster services",
+)
+@workspace_options
+def definitions_validate_command(log_level: str, log_format: str, **other_opts: object):
+    workspace_opts = WorkspaceOpts.extract_from_cli_options(other_opts)
+    assert_no_remaining_opts(other_opts)
+
     os.environ["DAGSTER_IS_DEFS_VALIDATION_CLI"] = "1"
 
     configure_loggers(formatter=log_format, log_level=log_level.upper())
@@ -57,8 +64,8 @@ def definitions_validate_command(log_level: str, log_format: str, **kwargs: Clic
     with get_possibly_temporary_instance_for_cli(
         "dagster definitions validate", logger=logger
     ) as instance:
-        with get_workspace_from_kwargs(
-            instance=instance, version=dagster_version, kwargs=kwargs
+        with get_workspace_from_cli_opts(
+            instance=instance, version=dagster_version, workspace_opts=workspace_opts
         ) as workspace:
             invalid = any(
                 entry

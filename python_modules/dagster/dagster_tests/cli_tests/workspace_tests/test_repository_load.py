@@ -3,7 +3,7 @@ import pytest
 from click.testing import CliRunner
 from dagster._cli.workspace.cli_target import (
     get_remote_repository_from_kwargs,
-    get_workspace_from_kwargs,
+    get_workspace_from_cli_opts,
     repository_options,
 )
 from dagster._core.instance import DagsterInstance
@@ -36,7 +36,7 @@ def load_workspace_via_cli_runner(cli_args, workspace_assert_fn=None):
     @click.command(name="test_workspace_command")
     @repository_options
     def command(**kwargs):
-        with get_workspace_from_kwargs(
+        with get_workspace_from_cli_opts(
             DagsterInstance.get(),
             version="",
             kwargs=kwargs,

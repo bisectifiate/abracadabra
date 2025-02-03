@@ -1,8 +1,8 @@
 import os
 import sys
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union, cast
+from typing import Any, Callable, Optional, TypeVar, cast
 
 import click
 from click import UsageError
@@ -21,8 +21,8 @@ from dagster._core.definitions.reconstruct import repository_def_from_target_def
 from dagster._core.instance import DagsterInstance
 from dagster._core.origin import DEFAULT_DAGSTER_ENTRY_POINT, RepositoryPythonOrigin
 from dagster._core.remote_representation.code_location import CodeLocation
-from dagster._core.remote_representation.external import RemoteRepository
-from dagster._core.workspace.context import WorkspaceRequestContext
+from dagster._core.remote_representation.external import RemoteJob, RemoteRepository
+from dagster._core.workspace.context import WorkspaceProcessContext, WorkspaceRequestContext
 from dagster._core.workspace.load_target import (
     CompositeTarget,
     EmptyWorkspaceTarget,
@@ -40,11 +40,6 @@ from dagster._seven import JSONDecodeError, json
 from dagster._utils.error import serializable_error_info_from_exc_info
 from dagster._utils.yaml_utils import load_yaml_from_glob_list
 
-if TYPE_CHECKING:
-    from dagster._core.workspace.context import WorkspaceProcessContext
-
-from dagster._core.remote_representation.external import RemoteJob
-
 WORKSPACE_TARGET_WARNING = (
     "Can only use ONE of --workspace/-w, --python-file/-f, --module-name/-m, --grpc-port,"
     " --grpc-socket."
@@ -60,64 +55,56 @@ WORKSPACE_CLI_ARGS = (
     "package_name",
     "module_name",
     "attribute",
-    "repository_yaml",
     "grpc_host",
     "grpc_port",
     "grpc_socket",
 )
 
 
-def get_workspace_load_target(kwargs: ClickArgMapping) -> WorkspaceLoadTarget:
-    check.mapping_param(kwargs, "kwargs")
-    if _are_all_keys_empty(kwargs, WORKSPACE_CLI_ARGS):
-        if kwargs.get("empty_workspace"):
+def _get_workspace_load_target_from_cli_opts(
+    workspace_opts: "WorkspaceOpts",
+) -> WorkspaceLoadTarget:
+    if _are_attrs_falsey(workspace_opts, *WORKSPACE_CLI_ARGS):
+        if workspace_opts.empty_workspace:
             return EmptyWorkspaceTarget()
-        if has_pyproject_dagster_block("pyproject.toml"):
+        elif has_pyproject_dagster_block("pyproject.toml"):
             return PyProjectFileTarget("pyproject.toml")
-
-        if os.path.exists("workspace.yaml"):
+        elif os.path.exists("workspace.yaml"):
             return WorkspaceFileTarget(paths=["workspace.yaml"])
-        raise click.UsageError(
-            "No arguments given and no [tool.dagster] block in pyproject.toml found."
-        )
+        else:
+            raise click.UsageError(
+                "No arguments given and no [tool.dagster] block in pyproject.toml found."
+            )
 
-    if kwargs.get("workspace"):
-        _check_cli_arguments_none(
-            kwargs,
-            "python_file",
-            "working_directory",
-            "module_name",
-            "package_name",
-            "attribute",
-            "grpc_host",
-            "grpc_port",
-            "grpc_socket",
+    if workspace_opts.workspace:
+        _check_attrs_falsey(
+            workspace_opts,
+            *(k for k in WORKSPACE_CLI_ARGS if k not in ["workspace"]),
         )
-        return WorkspaceFileTarget(paths=list(cast(Union[list, tuple], kwargs.get("workspace"))))
-    if kwargs.get("python_file"):
-        _check_cli_arguments_none(
-            kwargs,
-            "module_name",
-            "package_name",
-            "grpc_host",
-            "grpc_port",
-            "grpc_socket",
+        return WorkspaceFileTarget(paths=list(workspace_opts.workspace))
+
+    elif workspace_opts.python_file:
+        _check_attrs_falsey(
+            workspace_opts,
+            *(
+                k
+                for k in WORKSPACE_CLI_ARGS
+                if k not in ["python_file", "attribute", "working_directory"]
+            ),
         )
-        python_files = kwargs["python_file"]
+        working_directory = workspace_opts.working_directory or os.getcwd()
 
-        working_directory = get_working_directory_from_kwargs(kwargs)
-
-        if len(python_files) == 1:
+        if len(workspace_opts.python_file) == 1:
             return PythonFileTarget(
-                python_file=python_files[0],
-                attribute=check.opt_str_elem(kwargs, "attribute"),
+                python_file=workspace_opts.python_file[0],
+                attribute=workspace_opts.attribute,
                 working_directory=working_directory,
                 location_name=None,
             )
         else:
             # multiple files
 
-            if kwargs.get("attribute"):
+            if workspace_opts.attribute:
                 raise UsageError(
                     "If you are specifying multiple files you cannot specify an attribute."
                 )
@@ -130,39 +117,36 @@ def get_workspace_load_target(kwargs: ClickArgMapping) -> WorkspaceLoadTarget:
                         working_directory=working_directory,
                         location_name=None,
                     )
-                    for python_file in python_files
+                    for python_file in workspace_opts.python_file
                 ]
             )
 
-    if kwargs.get("module_name"):
-        _check_cli_arguments_none(
-            kwargs,
-            "package_name",
-            "grpc_host",
-            "grpc_port",
-            "grpc_socket",
+    elif workspace_opts.module_name:
+        _check_attrs_falsey(
+            workspace_opts,
+            *(
+                k
+                for k in WORKSPACE_CLI_ARGS
+                if k not in ["module_name", "attribute", "working_directory"]
+            ),
         )
 
-        module_names = kwargs["module_name"]
+        working_directory = workspace_opts.working_directory or os.getcwd()
 
-        check.is_tuple(module_names, of_type=str)
-
-        working_directory = get_working_directory_from_kwargs(kwargs)
-
-        if len(module_names) == 1:
+        if len(workspace_opts.module_name) == 1:
             return ModuleTarget(
-                module_name=module_names[0],
-                attribute=check.opt_str_elem(kwargs, "attribute"),
+                module_name=workspace_opts.module_name[0],
+                attribute=workspace_opts.attribute,
                 working_directory=working_directory,
                 location_name=None,
             )
         else:
             # multiple modules
 
-            if kwargs.get("attribute"):
+            if workspace_opts.attribute:
                 raise UsageError(
                     "If you are specifying multiple modules you cannot specify an attribute. Got"
-                    f" modules {module_names}."
+                    f" modules {workspace_opts.module_name}."
                 )
 
             return CompositeTarget(
@@ -173,79 +157,84 @@ def get_workspace_load_target(kwargs: ClickArgMapping) -> WorkspaceLoadTarget:
                         working_directory=working_directory,
                         location_name=None,
                     )
-                    for module_name in module_names
+                    for module_name in workspace_opts.module_name
                 ]
             )
 
-    if kwargs.get("package_name"):
-        _check_cli_arguments_none(
-            kwargs,
-            "grpc_host",
-            "grpc_port",
-            "grpc_socket",
+    elif workspace_opts.package_name:
+        _check_attrs_falsey(
+            workspace_opts,
+            *(
+                k
+                for k in WORKSPACE_CLI_ARGS
+                if k not in ["package_name", "attribute", "working_directory"]
+            ),
         )
-        working_directory = get_working_directory_from_kwargs(kwargs)
-        return PackageTarget(
-            package_name=check.str_elem(kwargs, "package_name"),
-            attribute=check.opt_str_elem(kwargs, "attribute"),
-            working_directory=working_directory,
-            location_name=None,
-        )
-    if kwargs.get("grpc_port"):
-        _check_cli_arguments_none(
-            kwargs,
-            "attribute",
-            "working_directory",
-            "grpc_socket",
+        working_directory = workspace_opts.working_directory or os.getcwd()
+
+        if len(workspace_opts.package_name) == 1:
+            return PackageTarget(
+                package_name=workspace_opts.package_name[0],
+                attribute=workspace_opts.attribute,
+                working_directory=working_directory,
+                location_name=None,
+            )
+        else:
+            if workspace_opts.attribute:
+                raise UsageError(
+                    "If you are specifying multiple packages you cannot specify an attribute. Got"
+                    f" packages {workspace_opts.package_name}."
+                )
+
+            return CompositeTarget(
+                targets=[
+                    PackageTarget(
+                        package_name=package_name,
+                        attribute=None,
+                        working_directory=working_directory,
+                        location_name=None,
+                    )
+                    for package_name in workspace_opts.package_name
+                ]
+            )
+
+    elif workspace_opts.grpc_port:
+        _check_attrs_falsey(
+            workspace_opts,
+            *(k for k in WORKSPACE_CLI_ARGS if k not in ["grpc_port", "grpc_host"]),
         )
         return GrpcServerTarget(
-            port=check.int_elem(kwargs, "grpc_port"),
+            port=workspace_opts.grpc_port,
             socket=None,
-            host=check.opt_str_elem(kwargs, "grpc_host") or "localhost",
+            host=workspace_opts.grpc_host or "localhost",
             location_name=None,
         )
-    elif kwargs.get("grpc_socket"):
-        _check_cli_arguments_none(
-            kwargs,
-            "attribute",
-            "working_directory",
+    elif workspace_opts.grpc_socket:
+        _check_attrs_falsey(
+            workspace_opts,
+            *(k for k in WORKSPACE_CLI_ARGS if k not in ["grpc_socket", "grpc_host"]),
         )
         return GrpcServerTarget(
             port=None,
-            socket=check.str_elem(kwargs, "grpc_socket"),
-            host=check.opt_str_elem(kwargs, "grpc_host") or "localhost",
+            socket=workspace_opts.grpc_socket,
+            host=workspace_opts.grpc_host or "localhost",
             location_name=None,
         )
     else:
         _raise_cli_usage_error()
 
 
-def get_workspace_process_context_from_kwargs(
-    instance: DagsterInstance,
-    version: str,
-    read_only: bool,
-    kwargs: ClickArgMapping,
-    code_server_log_level: str = "INFO",
-) -> "WorkspaceProcessContext":
-    from dagster._core.workspace.context import WorkspaceProcessContext
-
-    return WorkspaceProcessContext(
-        instance,
-        get_workspace_load_target(kwargs),
-        version=version,
-        read_only=read_only,
-        code_server_log_level=code_server_log_level,
-    )
-
-
 @contextmanager
-def get_workspace_from_kwargs(
+def get_workspace_from_cli_opts(
     instance: DagsterInstance,
     version: str,
-    kwargs: ClickArgMapping,
+    workspace_opts: "WorkspaceOpts",
 ) -> Iterator[WorkspaceRequestContext]:
-    with get_workspace_process_context_from_kwargs(
-        instance, version, read_only=False, kwargs=kwargs
+    with WorkspaceProcessContext(
+        instance=instance,
+        version=version,
+        read_only=False,
+        workspace_load_target=workspace_opts.to_load_target(),
     ) as workspace_process_context:
         yield workspace_process_context.create_request_context()
 
@@ -279,6 +268,44 @@ class PythonPointerOpts:
             working_directory=check.opt_inst(cli_options.pop("working_directory"), str),
             attribute=check.opt_inst(cli_options.pop("attribute"), str),
         )
+
+
+@record
+class WorkspaceOpts:
+    empty_workspace: bool = False
+    workspace: Optional[tuple[str, ...]] = None
+
+    # Like PythonPointerParams but multiple files/modules/packages are allowed
+    python_file: Optional[tuple[str, ...]] = None
+    module_name: Optional[tuple[str, ...]] = None
+    package_name: Optional[tuple[str, ...]] = None
+    working_directory: Optional[str] = None
+    attribute: Optional[str] = None
+
+    # For gRPC server
+    grpc_port: Optional[int] = None
+    grpc_socket: Optional[str] = None
+    grpc_host: Optional[str] = None
+    use_ssl: bool = False
+
+    @classmethod
+    def extract_from_cli_options(cls, cli_options: dict[str, object]) -> Self:
+        return cls(
+            empty_workspace=check.inst(cli_options.pop("empty_workspace"), bool),
+            workspace=check.is_tuple(cli_options.pop("workspace", None), of_type=str),
+            python_file=check.is_tuple(cli_options.pop("python_file", None), of_type=str),
+            module_name=check.is_tuple(cli_options.pop("module_name", None), of_type=str),
+            package_name=check.is_tuple(cli_options.pop("package_name"), of_type=str),
+            working_directory=check.opt_inst(cli_options.pop("working_directory", None), str),
+            attribute=check.opt_inst(cli_options.pop("attribute", None), str),
+            grpc_port=check.opt_inst(cli_options.pop("grpc_port", None), int),
+            grpc_socket=check.opt_inst(cli_options.pop("grpc_socket", None), str),
+            grpc_host=check.opt_inst(cli_options.pop("grpc_host", None), str),
+            use_ssl=check.inst(cli_options.pop("use_ssl", False), bool),
+        )
+
+    def to_load_target(self) -> WorkspaceLoadTarget:
+        return _get_workspace_load_target_from_cli_opts(self)
 
 
 # ########################
@@ -430,6 +457,7 @@ def _generate_python_pointer_options(allow_multiple: bool) -> Sequence[ClickOpti
         ),
         click.option(
             "--package-name",
+            multiple=allow_multiple,
             help="Specify Python package where repository or job function lives",
             envvar="DAGSTER_PACKAGE_NAME",
         ),
@@ -471,7 +499,7 @@ def _generate_grpc_server_options(hidden=False) -> Sequence[ClickOption]:
         click.option(
             "--use-ssl",
             is_flag=True,
-            required=False,
+            default=False,
             help="Use a secure channel when connecting to the gRPC server",
             hidden=hidden,
         ),
@@ -607,7 +635,7 @@ def get_code_location_from_kwargs(
 ) -> Iterator[CodeLocation]:
     # Instance isn't strictly required to load a repository location, but is included
     # to satisfy the WorkspaceProcessContext / WorkspaceRequestContext requirements
-    with get_workspace_from_kwargs(instance, version, kwargs) as workspace:
+    with get_workspace_from_cli_opts(instance, version, kwargs) as workspace:
         location_name = check.opt_str_elem(kwargs, "location")
         yield get_code_location_from_workspace(workspace, location_name)
 
@@ -753,15 +781,13 @@ def _raise_cli_usage_error(msg: Optional[str] = None) -> Never:
     )
 
 
-def _check_cli_arguments_none(kwargs: ClickArgMapping, *keys: str) -> None:
-    for key in keys:
-        if kwargs.get(key):
-            _raise_cli_usage_error()
+def _check_attrs_falsey(obj: object, *attrs: str) -> None:
+    if not _are_attrs_falsey(obj, *attrs):
+        _raise_cli_usage_error()
 
 
-def _are_all_keys_empty(kwargs: ClickArgMapping, keys: Iterable[str]) -> bool:
-    for key in keys:
-        if kwargs.get(key):
+def _are_attrs_falsey(obj: object, *attrs: str) -> bool:
+    for attr in attrs:
+        if getattr(obj, attr):
             return False
-
     return True
