@@ -2,11 +2,12 @@ import contextlib
 import signal
 import socket
 import subprocess
+import sys
 import time
 
 import psutil
 import requests
-from dagster_dg.utils import ensure_dagster_dg_tests_import
+from dagster_dg.utils import ensure_dagster_dg_tests_import, interrupt_subprocess, open_subprocess
 from dagster_graphql.client import DagsterGraphQLClient
 
 ensure_dagster_dg_tests_import()
@@ -119,7 +120,7 @@ def test_dev_command_forwards_options_to_dagster_dev():
 def _launch_dev_command(options: list[str], capture_output: bool = False) -> subprocess.Popen:
     # We start a new process instead of using the runner to avoid blocking the test. We need to
     # poll the webserver to know when it is ready.
-    return subprocess.Popen(
+    return open_subprocess(
         [
             "dg",
             "dev",
@@ -138,7 +139,8 @@ def _assert_code_locations_loaded_and_exit(
         child_processes = _get_child_processes(proc.pid)
         assert _query_code_locations(port) == code_locations
     finally:
-        proc.send_signal(signal.SIGINT)
+        interrupt_signal = signal.CTRL_BREAK_EVENT if sys.platform == "win32" else signal.SIGINT
+        interrupt_subprocess(proc.pid, interrupt_signal)
         proc.communicate()
         time.sleep(3)
         _assert_no_child_processes_running(child_processes)
@@ -151,7 +153,8 @@ def _assert_no_child_processes_running(child_procs: list[psutil.Process]) -> Non
 
 def _get_child_processes(pid) -> list[psutil.Process]:
     parent = psutil.Process(pid)
-    return parent.children(recursive=True)
+    # Windows will sometimes return the parent process as its own child. Filter this out.
+    return [p for p in parent.children(recursive=True) if p.pid != pid]
 
 
 def _find_free_port() -> int:
