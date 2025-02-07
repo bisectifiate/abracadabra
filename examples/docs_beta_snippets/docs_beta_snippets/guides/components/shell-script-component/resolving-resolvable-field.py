@@ -1,17 +1,19 @@
+from collections.abc import Sequence
+
 from dagster_components import (
+    AssetSpecModel,
     Component,
     ComponentLoadContext,
+    ResolvableModel,
     registered_component_type,
 )
 
 import dagster as dg
 
 
-class ScriptRunner: ...
-
-
-def _get_script_runner(val: str) -> ScriptRunner:
-    return ScriptRunner()
+class ShellCommandParams(ResolvableModel):
+    path: str
+    asset_specs: Sequence[AssetSpecModel]
 
 
 @registered_component_type(name="shell_command")
@@ -22,13 +24,4 @@ class ShellCommand(Component):
     ...
 
     def build_defs(self, load_context: ComponentLoadContext) -> dg.Definitions:
-        # highlight-start
-        # resolve the script runner with its required additional scope
-        script_runner = self.params.resolve_properties(
-            load_context.resolution_context.with_scope(
-                get_script_runner=_get_script_runner
-            )
-        )["script_runner"]
-        # highlight-end
-        ...
         return dg.Definitions(...)

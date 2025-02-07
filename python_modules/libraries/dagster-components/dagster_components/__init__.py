@@ -18,6 +18,7 @@ from dagster_components.core.schema.context import ResolutionContext as Resoluti
 from dagster_components.core.schema.metadata import ResolvableFieldInfo as ResolvableFieldInfo
 from dagster_components.core.schema.objects import (
     AssetAttributesModel as AssetAttributesModel,
+    AssetSpecModel as AssetSpecModel,
     AssetSpecTransformModel as AssetSpecTransformModel,
     OpSpecModel as OpSpecModel,
 )
