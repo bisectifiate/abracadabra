@@ -7,7 +7,7 @@ from dagster._core.execution.context.asset_execution_context import AssetExecuti
 
 from dagster_components import Component, ComponentLoadContext, registered_component_type
 from dagster_components.core.component_scaffolder import DefaultComponentScaffolder
-from dagster_components.core.schema.base import ResolvableModel
+from dagster_components.core.schema.base import ComponentSchema
 from dagster_components.core.schema.metadata import ResolvableFieldInfo
 from dagster_components.core.schema.objects import (
     AssetAttributesModel,
@@ -16,7 +16,7 @@ from dagster_components.core.schema.objects import (
 )
 
 
-class ComplexAssetParams(ResolvableModel):
+class ComplexAssetParams(ComponentSchema):
     value: str
     op: Optional[OpSpecModel] = None
     asset_attributes: Annotated[

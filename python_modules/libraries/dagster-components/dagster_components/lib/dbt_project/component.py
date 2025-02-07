@@ -13,7 +13,7 @@ from dagster_dbt import (
 
 from dagster_components import Component, ComponentLoadContext
 from dagster_components.core.component import registered_component_type
-from dagster_components.core.schema.base import ResolvableModel, Resolver, resolver
+from dagster_components.core.schema.base import ComponentSchema, Resolver, resolver
 from dagster_components.core.schema.metadata import ResolvableFieldInfo
 from dagster_components.core.schema.objects import (
     AssetAttributesModel,
@@ -25,7 +25,7 @@ from dagster_components.lib.dbt_project.scaffolder import DbtProjectComponentSca
 from dagster_components.utils import TranslatorResolvingInfo, get_wrapped_translator_class
 
 
-class DbtProjectParams(ResolvableModel):
+class DbtProjectParams(ComponentSchema):
     dbt: DbtCliResource
     op: Optional[OpSpecModel] = None
     asset_attributes: Annotated[
@@ -39,7 +39,7 @@ class DbtProjectResolver(Resolver[DbtProjectParams]):
     def resolve_translator(self, context: ResolutionContext) -> DagsterDbtTranslator:
         return get_wrapped_translator_class(DagsterDbtTranslator)(
             resolving_info=TranslatorResolvingInfo(
-                "node", self.model.asset_attributes or AssetAttributesModel(), context
+                "node", self.schema.asset_attributes or AssetAttributesModel(), context
             )
         )
 
