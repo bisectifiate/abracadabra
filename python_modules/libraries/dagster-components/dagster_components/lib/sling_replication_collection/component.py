@@ -19,8 +19,8 @@ from dagster_components.core.schema.metadata import ResolvableFieldInfo
 from dagster_components.core.schema.objects import (
     AssetAttributesModel,
     AssetSpecTransformModel,
+    ComponentSchema,
     OpSpecModel,
-    ResolvableModel,
 )
 from dagster_components.utils import TranslatorResolvingInfo, get_wrapped_translator_class
 
@@ -32,7 +32,7 @@ class SlingReplicationSpec:
     translator: Optional[DagsterSlingTranslator]
 
 
-class SlingReplicationParams(ResolvableModel):
+class SlingReplicationParams(ComponentSchema):
     path: str
     op: Optional[OpSpecModel] = None
     asset_attributes: Annotated[
@@ -41,7 +41,7 @@ class SlingReplicationParams(ResolvableModel):
     ] = None
 
 
-class SlingReplicationCollectionParams(ResolvableModel):
+class SlingReplicationCollectionParams(ComponentSchema):
     sling: Optional[SlingResource] = None
     replications: Sequence[SlingReplicationParams]
     transforms: Optional[Sequence[AssetSpecTransformModel]] = None
@@ -57,7 +57,7 @@ class SlingReplicationResolver(Resolver):
         return get_wrapped_translator_class(DagsterSlingTranslator)(
             resolving_info=TranslatorResolvingInfo(
                 "stream_definition",
-                self.model.asset_attributes or AssetAttributesModel(),
+                self.schema.asset_attributes or AssetAttributesModel(),
                 resolver,
             ),
         )
@@ -67,20 +67,20 @@ class SlingReplicationResolver(Resolver):
 class SlingReplicationCollectionResolver(Resolver[SlingReplicationCollectionParams]):
     def resolve_sling(self, resolver: ResolutionContext) -> SlingResource:
         return (
-            SlingResource(**resolver.resolve_value(self.model.sling.model_dump()))
-            if self.model.sling
+            SlingResource(**resolver.resolve_value(self.schema.sling.model_dump()))
+            if self.schema.sling
             else SlingResource()
         )
 
     def resolve_replications(self, resolver: ResolutionContext) -> Sequence[SlingReplicationSpec]:
-        return [resolver.resolve_value(replication) for replication in self.model.replications]
+        return [resolver.resolve_value(replication) for replication in self.schema.replications]
 
     def resolve_transforms(
         self, resolver: ResolutionContext
     ) -> Optional[Sequence[Callable[[Definitions], Definitions]]]:
         return (
-            [resolver.resolve_value(transform) for transform in self.model.transforms]
-            if self.model.transforms
+            [resolver.resolve_value(transform) for transform in self.schema.transforms]
+            if self.schema.transforms
             else None
         )
 
